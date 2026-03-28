@@ -1,15 +1,25 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { IUserData, User } from '../models/user.model';
 
+function roleForNewUser(username: string): string {
+  if (username === 'admin') {
+    return 'admin';
+  }
+  if (username === 'Никита') {
+    return 'nikita';
+  }
+  return 'user';
+}
+
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectModel(User)
-    private userModel: typeof User,
-    private jwtService: JwtService,
+      @InjectModel(User)
+      private userModel: typeof User,
+      private jwtService: JwtService,
   ) {}
 
   async validateUser(username: string, password: string): Promise<IUserData | null> {
@@ -28,10 +38,8 @@ export class AuthService {
       // Пользователь не существует - создаем нового
       const saltRounds = 10;
       const password_hash = await bcrypt.hash(password, saltRounds);
-      
-      // Определяем роль: nikita для пользователя Никита, user для остальных
-      const role = username === 'Никита' ? 'nikita' : 'user';
-      
+      const role = roleForNewUser(username);
+
       const newUser = await this.userModel.create({
         login: username,
         password_hash,

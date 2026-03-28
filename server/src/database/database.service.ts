@@ -1,9 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/sequelize';
 import { Sequelize } from 'sequelize-typescript';
+import { DataTypes } from 'sequelize';
 import { User } from '../models/user.model';
-import { Round } from '../models/round.model';
-import { Score } from '../models/score.model';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -17,12 +16,15 @@ export class DatabaseService implements OnModuleInit {
 
       // Check if users table exists
       const tableExists = await this.checkTableExists('users');
-      
+
       if (!tableExists) {
         console.log('Users table not found. Initializing database...');
+
         await this.initializeDatabase();
       } else {
         console.log('Database already initialized.');
+
+        await this.ensureRoundTotalScoreColumn();
       }
     } catch (error) {
       console.error('Unable to connect to the database:', error);
@@ -55,6 +57,27 @@ export class DatabaseService implements OnModuleInit {
     }
   }
 
+  private async ensureRoundTotalScoreColumn(): Promise<void> {
+    const queryInterface = this.sequelize.getQueryInterface();
+    const tables = await queryInterface.showAllTables();
+
+    if (!tables.includes('rounds')) {
+      return;
+    }
+
+    const description = await queryInterface.describeTable('rounds');
+
+    if (!('total_score' in description)) {
+      await queryInterface.addColumn('rounds', 'total_score', {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      });
+
+      console.log('Added column rounds.total_score');
+    }
+  }
+
   private async createInitialUsers() {
     const users = [
       {
@@ -71,6 +94,7 @@ export class DatabaseService implements OnModuleInit {
 
     for (const userData of users) {
       const password_hash = await bcrypt.hash(userData.password, 10);
+
       await User.create({
         login: userData.login,
         password_hash,

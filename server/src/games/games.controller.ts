@@ -1,15 +1,25 @@
-import { Controller, Get, Post, Param, UseGuards, Req, ForbiddenException, Body, BadRequestException } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-import { GamesService } from './games.service';
-import { 
-  RoundsResponse, 
-  RoundResponse, 
-  RoundWithResultsResponse, 
-  TapRequest, 
-  TapResponse, 
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {AuthGuard} from '@nestjs/passport';
+import {GamesService} from './games.service';
+import {
   CreateRoundResponse,
+  RoundResponse,
+  RoundsResponse,
+  RoundWithResultsResponse,
   RoundWithScore,
-  RoundWithResults 
+  TapRequest,
+  TapResponse
 } from '@roundsquares/contract';
 
 @Controller()
@@ -27,27 +37,29 @@ export class GamesController {
   async getRound(@Param('uuid') uuid: string, @Req() req: any): Promise<RoundResponse | RoundWithResultsResponse> {
     const round = await this.gamesService.getRoundByUuid(uuid);
     if (!round) {
-      return { error: 'Round not found' } as any;
+      throw new NotFoundException('Round not found');
     }
 
     const score = await this.gamesService.getOrCreateScoreByUserAndRound(req.user.sub, uuid);
+    const currentUserScore =
+        req.user.role === 'nikita' ? 0 : this.gamesService.scoreFromTapsCount(score.taps);
 
     const baseResponse: RoundWithScore = {
-      round: round,
+      round,
+      currentUserScore,
     };
 
-    // Если раунд завершен, добавляем дополнительную информацию
     if (this.gamesService.isRoundFinished(round)) {
       const summary = await this.gamesService.getRoundSummary(uuid);
-      const responseWithResults: RoundWithResults = {
+
+      return {
         ...baseResponse,
         totalScore: summary.totalScore,
         bestPlayer: summary.bestPlayer,
-        currentUserScore: this.gamesService.scoreFromTapsCount(score.taps),
+        currentUserScore,
       };
-      return responseWithResults;
     }
-    
+
     return baseResponse;
   }
 
@@ -69,7 +81,6 @@ export class GamesController {
       throw new ForbiddenException('Only admin users can create rounds');
     }
 
-    const round = await this.gamesService.createRound();
-    return round;
+    return await this.gamesService.createRound();
   }
 }

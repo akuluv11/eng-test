@@ -1,9 +1,9 @@
-// Базовые модели данных
+export type UserRole = 'user' | 'admin' | 'nikita';
 
 export interface User {
   login: string;
   password_hash: string;
-  role: 'user' | 'admin';
+  role: UserRole;
 }
 
 export interface Round {
@@ -11,6 +11,7 @@ export interface Round {
   start_datetime: Date;
   end_datetime: Date;
   status: string;
+  total_score: number;
 }
 
 export interface Score {
@@ -23,6 +24,7 @@ export interface Score {
 // Дополнительные типы для ответов API
 export interface RoundWithScore {
   round: Round;
+  currentUserScore: number;
 }
 
 export interface RoundWithResults extends RoundWithScore {

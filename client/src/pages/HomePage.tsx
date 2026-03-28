@@ -1,46 +1,52 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
 import type { Round } from '../types/api';
+
+function phaseLabel(round: Round, now: Date): string {
+  const t = now.getTime();
+  const start = new Date(round.start_datetime).getTime();
+  const end = new Date(round.end_datetime).getTime();
+  if (t >= end) return 'Завершён';
+  if (t >= start) return 'Активен';
+  return 'Cooldown';
+}
 
 export const HomePage: React.FC = () => {
   const [rounds, setRounds] = useState<Round[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [creatingRound, setCreatingRound] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const navigate = useNavigate();
+  const player = apiService.decodeToken();
+
+  const fetchRounds = useCallback(async (isInitial: boolean) => {
+    try {
+      if (isInitial) setLoading(true);
+      const roundsData = await apiService.getRounds();
+      setRounds(roundsData);
+    } catch (err) {
+      setError('Ошибка загрузки раундов');
+      if (err instanceof Error && err.message.includes('Authentication')) {
+        apiService.removeToken();
+        navigate('/auth');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
 
   useEffect(() => {
-    let initialFetch = true;
-    const fetchRounds = async () => {
-      try {
-        setRounds((prev) => {
-          initialFetch = prev.length === 0;
-          return prev;
-        });
-        setLoading(initialFetch);
-        const roundsData = await apiService.getRounds();
-        setRounds(roundsData);
-      } catch (err) {
-        setError('Ошибка загрузки раундов');
-        // Если ошибка авторизации, перенаправляем на страницу входа
-        if (err instanceof Error && err.message.includes('Authentication')) {
-          apiService.removeToken();
-          navigate('/auth');
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRounds();
-
-    // Устанавливаем интервал для обновления каждые 3 секунды
-    const interval = setInterval(fetchRounds, 3000);
-
-    // Очищаем интервал при размонтировании компонента
+    void fetchRounds(true);
+    const interval = setInterval(() => void fetchRounds(false), 3000);
     return () => clearInterval(interval);
-  }, [navigate]);
+  }, [fetchRounds]);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const handleLogout = () => {
     apiService.removeToken();
@@ -51,10 +57,10 @@ export const HomePage: React.FC = () => {
     try {
       setCreatingRound(true);
       setError('');
-      await apiService.createRound();
-      // Обновляем список раундов
-      const roundsData = await apiService.getRounds();
-      setRounds(roundsData);
+      const created = await apiService.createRound();
+      const refreshed = await apiService.getRounds();
+      setRounds(refreshed);
+      navigate(`/round/${created.uuid}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка создания раунда');
     } finally {
@@ -62,245 +68,183 @@ export const HomePage: React.FC = () => {
     }
   };
 
-  const formatDate = (date: string | Date) => {
-    return new Date(date).toLocaleString('ru-RU');
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return '#28a745';
-      case 'completed':
-        return '#6c757d';
-      case 'pending':
-        return '#ffc107';
-      default:
-        return '#007bff';
-    }
-  };
-
-  const handleRoundClick = (uuid: string) => {
-    navigate(`/round/${uuid}`);
-  };
+  const formatDate = (date: string | Date) => new Date(date).toLocaleString('ru-RU');
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        minHeight: '100vh',
-        backgroundColor: '#f5f5f5'
-      }}>
-        <div style={{
-          textAlign: 'center',
-          fontSize: '1.2rem',
-          color: '#666'
-        }}>
-          Загрузка раундов...
+        <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              minHeight: '100vh',
+              backgroundColor: '#1a1d23',
+            }}
+        >
+          <div style={{ color: '#c5c8ce', fontSize: '1.1rem' }}>Загрузка раундов…</div>
         </div>
-      </div>
     );
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      backgroundColor: '#f5f5f5',
-      padding: '2rem'
-    }}>
-      <div style={{
-        maxWidth: '1200px',
-        margin: '0 auto'
-      }}>
-        <header style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '2rem',
-          backgroundColor: 'white',
-          padding: '1rem 2rem',
-          borderRadius: '8px',
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
-        }}>
-          <h1 style={{ margin: 0, color: '#333' }}>
-            The Last of Guss
-          </h1>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            {apiService.isAdmin() && (
-              <button
-                onClick={handleCreateRound}
-                disabled={creatingRound}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: creatingRound ? '#6c757d' : '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: creatingRound ? 'not-allowed' : 'pointer',
-                  fontSize: '0.9rem'
-                }}
-              >
-                {creatingRound ? 'Создание...' : 'Создать раунд'}
-              </button>
-            )}
-            <button
-              onClick={handleLogout}
+      <div style={{ minHeight: '100vh', backgroundColor: '#1a1d23', padding: '1.5rem' }}>
+        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+          <header
               style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: '#dc3545',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '0.9rem'
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '1rem',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '1.5rem',
+                padding: '1rem 1.25rem',
+                backgroundColor: '#252830',
+                borderRadius: 12,
+                border: '1px solid #353a45',
               }}
-            >
-              Выйти
-            </button>
-          </div>
-        </header>
-
-        <div style={{
-          backgroundColor: 'white',
-          borderRadius: '8px',
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-          overflow: 'hidden'
-        }}>
-          <div style={{
-            padding: '1.5rem 2rem',
-            borderBottom: '1px solid #eee'
-          }}>
-            <h2 style={{ margin: 0, color: '#333' }}>
+          >
+            <h1 style={{ margin: 0, color: '#e8eaed', fontSize: '1.35rem', fontWeight: 600 }}>
               Список раундов
-            </h2>
-          </div>
+            </h1>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+            <span style={{ color: '#9aa0a6', fontSize: '0.95rem' }}>
+              {player?.username ?? 'Игрок'}
+            </span>
+              {apiService.isAdmin() && (
+                  <button
+                      type="button"
+                      onClick={() => void handleCreateRound()}
+                      disabled={creatingRound}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: creatingRound ? '#4a5568' : '#3d7a4a',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 8,
+                        cursor: creatingRound ? 'not-allowed' : 'pointer',
+                        fontSize: '0.9rem',
+                        fontWeight: 500,
+                      }}
+                  >
+                    {creatingRound ? 'Создание…' : 'Создать раунд'}
+                  </button>
+              )}
+              <button
+                  type="button"
+                  onClick={handleLogout}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    backgroundColor: '#5c2b2b',
+                    color: '#f0d0d0',
+                    border: '1px solid #7a3a3a',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                  }}
+              >
+                Выйти
+              </button>
+            </div>
+          </header>
 
           {error && (
-            <div style={{
-              padding: '1rem 2rem',
-              backgroundColor: '#f8d7da',
-              color: '#721c24',
-              borderBottom: '1px solid #f5c6cb'
-            }}>
-              {error}
-            </div>
+              <div
+                  style={{
+                    marginBottom: '1rem',
+                    padding: '0.85rem 1rem',
+                    backgroundColor: '#3d2424',
+                    color: '#f5c0c0',
+                    borderRadius: 8,
+                    border: '1px solid #5c3030',
+                  }}
+              >
+                {error}
+              </div>
           )}
 
           {rounds.length === 0 ? (
-            <div style={{
-              padding: '3rem 2rem',
-              textAlign: 'center',
-              color: '#666'
-            }}>
-              Раунды не найдены
-            </div>
+              <div
+                  style={{
+                    padding: '3rem 2rem',
+                    textAlign: 'center',
+                    color: '#9aa0a6',
+                    backgroundColor: '#252830',
+                    borderRadius: 12,
+                    border: '1px solid #353a45',
+                  }}
+              >
+                Нет активных или запланированных раундов
+              </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse'
-              }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f8f9fa' }}>
-                    <th style={{
-                      padding: '1rem',
-                      textAlign: 'left',
-                      borderBottom: '1px solid #dee2e6',
-                      fontWeight: '600',
-                      color: '#495057'
-                    }}>
-                      ID
-                    </th>
-                    <th style={{
-                      padding: '1rem',
-                      textAlign: 'left',
-                      borderBottom: '1px solid #dee2e6',
-                      fontWeight: '600',
-                      color: '#495057'
-                    }}>
-                      Статус
-                    </th>
-                    <th style={{
-                      padding: '1rem',
-                      textAlign: 'left',
-                      borderBottom: '1px solid #dee2e6',
-                      fontWeight: '600',
-                      color: '#495057'
-                    }}>
-                      Начало
-                    </th>
-                    <th style={{
-                      padding: '1rem',
-                      textAlign: 'left',
-                      borderBottom: '1px solid #dee2e6',
-                      fontWeight: '600',
-                      color: '#495057'
-                    }}>
-                      Конец
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rounds.map((round) => (
-                    <tr 
-                      key={round.uuid} 
-                      onClick={() => handleRoundClick(round.uuid)}
-                      style={{
-                        borderBottom: '1px solid #dee2e6',
-                        cursor: 'pointer',
-                        transition: 'background-color 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#f8f9fa';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                      }}
-                    >
-                      <td style={{
-                        padding: '1rem',
-                        fontFamily: 'monospace',
-                        fontSize: '0.9rem',
-                        color: '#666'
-                      }}>
-                        {round.uuid.slice(0, 8)}...
-                      </td>
-                      <td style={{ padding: '1rem' }}>
-                        <span style={{
-                          display: 'inline-block',
-                          padding: '0.25rem 0.5rem',
-                          borderRadius: '12px',
-                          fontSize: '0.8rem',
-                          fontWeight: '500',
-                          backgroundColor: getStatusColor(round.status),
-                          color: 'white'
-                        }}>
-                          {round.status}
-                        </span>
-                      </td>
-                      <td style={{
-                        padding: '1rem',
-                        fontSize: '0.9rem',
-                        color: '#666'
-                      }}>
-                        {formatDate(round.start_datetime)}
-                      </td>
-                      <td style={{
-                        padding: '1rem',
-                        fontSize: '0.9rem',
-                        color: '#666'
-                      }}>
-                        {round.end_datetime ? formatDate(round.end_datetime) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {rounds.map((round) => {
+                  const phase = phaseLabel(round, now);
+                  const phaseColor =
+                      phase === 'Активен' ? '#3d7a4a' : phase === 'Cooldown' ? '#b8860b' : '#6b7280';
+                  return (
+                      <li
+                          key={round.uuid}
+                          style={{
+                            backgroundColor: '#252830',
+                            borderRadius: 12,
+                            border: '1px solid #353a45',
+                            padding: '1.25rem 1.5rem',
+                          }}
+                      >
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <Link
+                              to={`/round/${round.uuid}`}
+                              style={{
+                                color: '#7eb8ff',
+                                textDecoration: 'none',
+                                fontFamily: 'ui-monospace, monospace',
+                                fontSize: '0.9rem',
+                                wordBreak: 'break-all',
+                              }}
+                          >
+                            ● Round ID: {round.uuid}
+                          </Link>
+                        </div>
+                        <div style={{ color: '#c5c8ce', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                          <div>
+                            <strong style={{ color: '#9aa0a6' }}>Start:</strong> {formatDate(round.start_datetime)}
+                          </div>
+                          <div>
+                            <strong style={{ color: '#9aa0a6' }}>End:</strong>{' '}
+                            {round.end_datetime ? formatDate(round.end_datetime) : '—'}
+                          </div>
+                        </div>
+                        <div
+                            style={{
+                              marginTop: '1rem',
+                              paddingTop: '1rem',
+                              borderTop: '1px solid #353a45',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                            }}
+                        >
+                          <span style={{ color: '#9aa0a6', fontSize: '0.85rem' }}>Статус:</span>
+                          <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '0.2rem 0.65rem',
+                                borderRadius: 999,
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                backgroundColor: phaseColor,
+                                color: '#fff',
+                              }}
+                          >
+                      {phase}
+                    </span>
+                        </div>
+                      </li>
+                  );
+                })}
+              </ul>
           )}
         </div>
       </div>
-    </div>
   );
 };

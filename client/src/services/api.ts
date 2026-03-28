@@ -1,13 +1,13 @@
-import type { 
-  AuthRequest, 
-  AuthResponse, 
+import type {
+  AuthRequest,
+  AuthResponse,
   RoundsResponse,
   RoundResponse,
   RoundWithResultsResponse,
   TapRequest,
-  TapResponse, 
-  CreateRoundResponse, 
-  User 
+  TapResponse,
+  CreateRoundResponse,
+  User,
 } from '../types/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -31,7 +31,14 @@ class ApiService {
     });
 
     if (!response.ok) {
-      throw new Error('Authentication failed');
+      const errBody = await response.json().catch(() => ({}));
+      const msg =
+          typeof errBody.message === 'string'
+              ? errBody.message
+              : Array.isArray(errBody.message)
+                  ? errBody.message.join(', ')
+                  : 'Неверное имя или пароль';
+      throw new Error(msg);
     }
 
     return response.json();
@@ -72,7 +79,14 @@ class ApiService {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to perform tap');
+      const errBody = await response.json().catch(() => ({}));
+      const msg =
+          typeof errBody.message === 'string'
+              ? errBody.message
+              : Array.isArray(errBody.message)
+                  ? errBody.message.join(', ')
+                  : 'Не удалось выполнить тап';
+      throw new Error(msg);
     }
 
     return response.json();
@@ -120,7 +134,7 @@ class ApiService {
       const payload = JSON.parse(atob(token.split('.')[1]));
       return {
         username: payload.username,
-        role: payload.role
+        role: payload.role,
       };
     } catch (error) {
       console.error('Failed to decode token:', error);
